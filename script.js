@@ -123,6 +123,38 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
     };
 
+    const languageIcons = {
+        'lua': 'lua/lua-original',
+        'java': 'java/java-original',
+        'python': 'python/python-original',
+        'javascript': 'javascript/javascript-original',
+        'typescript': 'typescript/typescript-original',
+        'c#': 'csharp/csharp-original',
+        'c++': 'cplusplus/cplusplus-original',
+        'c': 'c/c-original',
+        'html': 'html5/html5-original',
+        'css': 'css3/css3-original',
+        'go': 'go/go-original',
+        'rust': 'rust/rust-original',
+        'ruby': 'ruby/ruby-original',
+        'php': 'php/php-original',
+        'swift': 'swift/swift-original',
+        'kotlin': 'kotlin/kotlin-original',
+    };
+
+    const getLanguageIcon = (language) => {
+        if (!language) return '';
+        const key = language.toLowerCase();
+        const icon = languageIcons[key];
+        if (icon) {
+            return `<img src="https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/${icon}.svg" alt="" class="meta-icon">`;
+        }
+        return '<svg class="meta-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/></svg>';
+    };
+
+    const starIcon = '<svg class="meta-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+    const clockIcon = '<svg class="meta-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>';
+
     const renderGitHubRepos = (repos) => {
         if (!repos.length) {
             githubRepos.innerHTML = '<p class="github-loading">No public repositories to show right now.</p>';
@@ -134,9 +166,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <h3>${escapeHtml(repo.name)}</h3>
                 <p class="github-repo-description">${escapeHtml(repo.description || 'No description provided yet.')}</p>
                 <div class="github-repo-meta">
-                    <span class="github-repo-language">${escapeHtml(repo.language || 'Mixed')}</span>
-                    <span class="github-repo-stars">${formatNumber(repo.stargazers_count)} stars</span>
-                    <span class="github-repo-updated">Updated ${formatDate(repo.updated_at)}</span>
+                    <span class="github-repo-language">${getLanguageIcon(repo.language)}${escapeHtml(repo.language || 'Mixed')}</span>
+                    <span class="github-repo-stars">${starIcon}${formatNumber(repo.stargazers_count)} stars</span>
+                    <span class="github-repo-updated">${clockIcon}Updated ${formatDate(repo.updated_at)}</span>
                 </div>
                 <a class="github-repo-link" href="${escapeHtml(repo.html_url)}" target="_blank" rel="noopener noreferrer">View Repository</a>
             </article>
@@ -150,185 +182,122 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${year}-${month}-${day}`;
     };
 
-    const startOfWeekSunday = (date) => {
-        const result = new Date(date);
-        result.setHours(0, 0, 0, 0);
-        result.setDate(result.getDate() - result.getDay());
-        return result;
+    const fetchContributionsFromGitHub = async () => {
+        const response = await fetch(
+            `https://github-contributions-api.jogruber.de/v4/${GITHUB_USERNAME}?y=last`
+        );
+        if (!response.ok) {
+            throw new Error('Failed to fetch GitHub contributions');
+        }
+
+        const data = await response.json();
+        const dailyLevels = {};
+        let totalCount = 0;
+
+        if (Array.isArray(data.contributions)) {
+            data.contributions.forEach(entry => {
+                if (entry.date) {
+                    dailyLevels[entry.date] = entry.level || 0;
+                    totalCount += entry.count || 0;
+                }
+            });
+        }
+
+        return { dailyLevels, totalCount };
     };
 
-    const intensityLevel = (count, maxCount) => {
-        if (!count) {
-            return 0;
-        }
-        if (maxCount <= 1) {
-            return 4;
-        }
-
-        const ratio = count / maxCount;
-        if (ratio < 0.25) {
-            return 1;
-        }
-        if (ratio < 0.5) {
-            return 2;
-        }
-        if (ratio < 0.75) {
-            return 3;
-        }
-        return 4;
-    };
-
-    const sumCounts = (dailyCounts) => {
-        return Object.values(dailyCounts).reduce((total, count) => total + count, 0);
-    };
-
-    const mergeDailyCounts = (baseCounts, nextCounts) => {
-        const merged = { ...baseCounts };
-        Object.entries(nextCounts).forEach(([day, count]) => {
-            merged[day] = (merged[day] || 0) + count;
-        });
-        return merged;
-    };
-
-    const renderCommitHeatmap = (dailyCommitCounts, rangeDays = 365) => {
+    const renderContributionChart = (dailyLevels, totalCount) => {
         if (!githubCommitGrid || !githubCommitSummary) {
             return;
         }
 
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const rangeStart = new Date(today);
-        rangeStart.setDate(today.getDate() - (rangeDays - 1));
-
-        const gridStart = startOfWeekSunday(rangeStart);
-        const gridEnd = new Date(today);
+        const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
         githubCommitGrid.innerHTML = '';
 
-        let maxCount = 0;
-        let totalCommits = 0;
-
-        Object.values(dailyCommitCounts).forEach((count) => {
-            totalCommits += count;
-            if (count > maxCount) {
-                maxCount = count;
-            }
-        });
-
-        for (let day = new Date(gridStart); day <= gridEnd; day.setDate(day.getDate() + 1)) {
-            const isoDate = formatIsoDate(day);
-            const count = dailyCommitCounts[isoDate] || 0;
-            const level = intensityLevel(count, maxCount);
-            const cell = document.createElement('div');
-
-            cell.className = `commit-cell level-${level}`;
-            cell.title = `${count} commits on ${formatDate(day.toISOString())}`;
-            githubCommitGrid.appendChild(cell);
-        }
-
-        if (totalCommits === 0) {
-            githubCommitSummary.textContent = `No public commits found in the last ${rangeDays} days`;
+        const dates = Object.keys(dailyLevels).sort();
+        if (!dates.length) {
+            githubCommitSummary.textContent = 'No contributions in the last year';
             return;
         }
 
-        githubCommitSummary.textContent = `${formatNumber(totalCommits)} commits in the last ${rangeDays} days`;
-    };
-
-    const fetchCommitCountsFromEvents = async (rangeStartDate) => {
-        const dailyCounts = {};
-        const rangeStartTimestamp = rangeStartDate.getTime();
-
-        for (let page = 1; page <= 10; page++) {
-            const eventsResponse = await fetch(`${GITHUB_API_BASE}/events/public?per_page=100&page=${page}`, {
-                headers: { 'Accept': 'application/vnd.github+json' }
-            });
-
-            if (!eventsResponse.ok) {
-                throw new Error('GitHub events request failed');
+        // Build monthly buckets
+        const monthlyData = {};
+        dates.forEach(date => {
+            const monthKey = date.slice(0, 7);
+            if (!monthlyData[monthKey]) {
+                monthlyData[monthKey] = { count: 0, activeDays: 0, totalDays: 0, maxLevel: 0 };
             }
-
-            const events = await eventsResponse.json();
-            if (!events.length) {
-                break;
+            const level = dailyLevels[date] || 0;
+            monthlyData[monthKey].totalDays++;
+            if (level > 0) {
+                monthlyData[monthKey].activeDays++;
+                monthlyData[monthKey].count++;
             }
-
-            const oldestEventDate = events[events.length - 1]?.created_at;
-            let hasOlderEvents = false;
-
-            events.forEach((event) => {
-                if (event.type !== 'PushEvent') {
-                    return;
-                }
-
-                const createdAt = event.created_at ? new Date(event.created_at) : null;
-                if (!createdAt) {
-                    return;
-                }
-
-                if (createdAt.getTime() < rangeStartTimestamp) {
-                    hasOlderEvents = true;
-                    return;
-                }
-
-                const isoDay = event.created_at.slice(0, 10);
-                if (!isoDay) {
-                    return;
-                }
-
-                const commitCount = Math.max(event.payload?.size || 0, event.payload?.commits?.length || 0, 1);
-                dailyCounts[isoDay] = (dailyCounts[isoDay] || 0) + commitCount;
-            });
-
-            if (oldestEventDate && new Date(oldestEventDate).getTime() < rangeStartTimestamp && hasOlderEvents) {
-                break;
+            if (level > monthlyData[monthKey].maxLevel) {
+                monthlyData[monthKey].maxLevel = level;
             }
-        }
+        });
 
-        return dailyCounts;
-    };
+        const sortedMonths = Object.keys(monthlyData).sort();
 
-    const fetchCommitCountsFromRepos = async (repos, rangeStartDate) => {
-        const dailyCounts = {};
-        const rangeStartIso = rangeStartDate.toISOString();
-        const candidateRepos = repos
-            .filter(repo => !repo.fork && repo.name.toLowerCase() !== GITHUB_USERNAME.toLowerCase())
-            .sort((a, b) => new Date(b.pushed_at) - new Date(a.pushed_at))
-            .slice(0, 12);
+        // Month cards grid
+        const grid = document.createElement('div');
+        grid.className = 'contrib-months-grid';
 
-        for (const repo of candidateRepos) {
-            for (let page = 1; page <= 3; page++) {
-                const commitsResponse = await fetch(
-                    `https://api.github.com/repos/${repo.full_name}/commits?author=${GITHUB_USERNAME}&since=${encodeURIComponent(rangeStartIso)}&per_page=100&page=${page}`,
-                    { headers: { 'Accept': 'application/vnd.github+json' } }
-                );
+        sortedMonths.forEach((monthKey, idx) => {
+            const data = monthlyData[monthKey];
+            const [year, month] = monthKey.split('-');
+            const monthName = MONTH_NAMES[parseInt(month, 10) - 1];
+            const isActive = data.activeDays > 0;
 
-                if (!commitsResponse.ok) {
-                    break;
-                }
+            const card = document.createElement('div');
+            card.className = `contrib-month-card${isActive ? ' active' : ''}`;
+            card.style.animationDelay = `${idx * 0.04}s`;
 
-                const commits = await commitsResponse.json();
-                if (!Array.isArray(commits) || commits.length === 0) {
-                    break;
-                }
+            // Activity ring — a circular progress indicator
+            const ringSize = 44;
+            const strokeWidth = 3;
+            const radius = (ringSize - strokeWidth) / 2;
+            const circumference = 2 * Math.PI * radius;
+            const progress = data.totalDays > 0 ? data.activeDays / data.totalDays : 0;
+            const dashOffset = circumference * (1 - progress);
 
-                commits.forEach((commit) => {
-                    const commitDate = commit?.commit?.author?.date || commit?.commit?.committer?.date;
-                    if (!commitDate) {
-                        return;
-                    }
+            const intensityClass = `intensity-${data.maxLevel}`;
 
-                    const isoDay = commitDate.slice(0, 10);
-                    dailyCounts[isoDay] = (dailyCounts[isoDay] || 0) + 1;
-                });
+            card.innerHTML = `
+                <div class="contrib-month-ring ${intensityClass}">
+                    <svg width="${ringSize}" height="${ringSize}" viewBox="0 0 ${ringSize} ${ringSize}">
+                        <circle cx="${ringSize / 2}" cy="${ringSize / 2}" r="${radius}"
+                            fill="none" stroke="var(--ring-bg)" stroke-width="${strokeWidth}" />
+                        <circle cx="${ringSize / 2}" cy="${ringSize / 2}" r="${radius}"
+                            fill="none" stroke="var(--ring-color)" stroke-width="${strokeWidth}"
+                            stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"
+                            stroke-linecap="round"
+                            transform="rotate(-90 ${ringSize / 2} ${ringSize / 2})"
+                            class="contrib-ring-progress" />
+                    </svg>
+                    <span class="contrib-month-count">${data.activeDays}</span>
+                </div>
+                <span class="contrib-month-name">${monthName}</span>
+                <span class="contrib-month-year">${year}</span>
+            `;
 
-                if (commits.length < 100) {
-                    break;
-                }
-            }
-        }
+            // Hover detail
+            const detail = document.createElement('div');
+            detail.className = 'contrib-month-detail';
+            detail.innerHTML = `<strong>${monthName} ${year}</strong><br>${data.activeDays} active day${data.activeDays !== 1 ? 's' : ''} of ${data.totalDays}`;
+            card.appendChild(detail);
 
-        return dailyCounts;
+            grid.appendChild(card);
+        });
+
+        githubCommitGrid.appendChild(grid);
+
+        githubCommitSummary.textContent = totalCount === 0
+            ? 'No contributions in the last year'
+            : `${totalCount} contributions in the last year`;
     };
 
     const loadGitHubActivity = async () => {
@@ -337,9 +306,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         try {
-            const [profileResponse, reposResponse] = await Promise.all([
+            const [profileResponse, reposResponse, contributionData] = await Promise.all([
                 fetch(GITHUB_API_BASE, { headers: { 'Accept': 'application/vnd.github+json' } }),
-                fetch(`${GITHUB_API_BASE}/repos?per_page=100&sort=updated`, { headers: { 'Accept': 'application/vnd.github+json' } })
+                fetch(`${GITHUB_API_BASE}/repos?per_page=100&sort=updated`, { headers: { 'Accept': 'application/vnd.github+json' } }),
+                fetchContributionsFromGitHub()
             ]);
 
             if (!profileResponse.ok || !reposResponse.ok) {
@@ -348,19 +318,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const profile = await profileResponse.json();
             const allRepos = await reposResponse.json();
-            const rangeDays = 365;
-            const rangeStartDate = new Date();
-            rangeStartDate.setHours(0, 0, 0, 0);
-            rangeStartDate.setDate(rangeStartDate.getDate() - (rangeDays - 1));
-
-            const eventCommitCounts = await fetchCommitCountsFromEvents(rangeStartDate);
-            let dailyCommitCounts = { ...eventCommitCounts };
-
-            // Events are limited; repo commit history helps fill in accurate activity when events are sparse.
-            if (sumCounts(dailyCommitCounts) < 10) {
-                const repoCommitCounts = await fetchCommitCountsFromRepos(allRepos, rangeStartDate);
-                dailyCommitCounts = mergeDailyCounts(dailyCommitCounts, repoCommitCounts);
-            }
 
             const featuredRepos = allRepos
                 .filter(repo => !repo.fork && repo.name.toLowerCase() !== GITHUB_USERNAME.toLowerCase())
@@ -374,7 +331,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderGitHubSummary(profile);
             renderGitHubRepos(featuredRepos);
-            renderCommitHeatmap(dailyCommitCounts, rangeDays);
+            renderContributionChart(contributionData.dailyLevels, contributionData.totalCount);
             registerScrollAnimations(document.querySelectorAll('.github-summary-card, .github-repo-card, .github-commit-history'));
         } catch (error) {
             githubSummary.innerHTML = '<p class="github-error">GitHub data is unavailable right now. Please try again in a little while.</p>';
